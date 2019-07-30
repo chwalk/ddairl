@@ -1,5 +1,6 @@
 import random
 import time
+from ExperienceReplay import ExperienceReplay
 
 
 """This class handles all the details of the game; drawing the screen, maintaining data
@@ -44,6 +45,7 @@ class GameStructure:
 
     def __play_series(self):
         self.brain.on_series(self.road_width - 2)
+        self.experience_replay = ExperienceReplay(self.max_history, self.advances_learning_interval)
 
         # Run many games, learning to drive with each game. Once the car advances 2000 sections
         # (or whatever num_advances_level_complete is set to), consider the level completed.
@@ -86,8 +88,17 @@ class GameStructure:
     def __draw_entrance(self):
         # The road ahead.
         self.road = []
-        for entrance_num in range(self.NUMBER_SECTIONS_IN_ENTRANCE):
-            self.road.append(self.empty_road_section.copy())
+        if (self.experience_replay.is_empty() == False):
+            (car_position, road, future_states) = self.experience_replay.pop()
+            self.car_position = car_position
+            self.road = road
+            if (future_states is not None):
+                for future_state in future_states:
+                    self.future_road.append(future_state[0][-1].copy())
+        else:
+            self.future_road = []
+            for entrance_num in range(self.NUMBER_SECTIONS_IN_ENTRANCE):
+                self.road.append(self.empty_road_section.copy())
         self.__scroll()
 
 
@@ -115,6 +126,7 @@ class GameStructure:
         if ((current_road_section[self.car_position] == '|')
             or (current_road_section[self.car_position] == 'O')):
                 crashed = True # Crash!
+                self.experience_replay.push(self.recent_road_states)
 
         # Call out to our brain and let it know whether we crashed.
         self.brain.on_after_move(self.action, crashed, self.num_advances, self.recent_road_states)
@@ -141,28 +153,31 @@ class GameStructure:
     def __create_next_road_section(self):
         curb = 1
         road_width_without_curbs = self.road_width - 2
-
-        next_road_section = self.empty_road_section.copy()
-        if (self.previous_road_section_num_obstacles > 1):
-            num_obstacles_allowed_in_land_row = road_width_without_curbs - 2
+        if (len(self.future_road) > 0):
+            next_road_section = self.future_road.pop(0)
         else:
-            num_obstacles_allowed_in_land_row = road_width_without_curbs - 1
-        num_obstacles_in_road_section = 0
-        if (self.DEBUG_FIXED_OBSTACLES):
-            spots = []
-            if (self.num_advances % 4 == 0):
-                spots = [1]
-            elif (self.num_advances % 2 == 0):
-                spots = [0, 2]
-            for spot in spots:
-                next_road_section[curb + spot] = 'O'
-        else:
-            spots = random.sample(list(range(road_width_without_curbs)), num_obstacles_allowed_in_land_row)
-            for spot in spots:
-                if (random.random() < self.random_obstacle_probability):
+            next_road_section = self.empty_road_section.copy()
+            if (self.previous_road_section_num_obstacles > 1):
+                num_obstacles_allowed_in_land_row = road_width_without_curbs - 2
+            else:
+                num_obstacles_allowed_in_land_row = road_width_without_curbs - 1
+            num_obstacles_in_road_section = 0
+            if (self.DEBUG_FIXED_OBSTACLES):
+                spots = []
+                if (self.num_advances % 4 == 0):
+                    spots = [1]
+                elif (self.num_advances % 2 == 0):
+                    spots = [0, 2]
+                for spot in spots:
                     next_road_section[curb + spot] = 'O'
                     num_obstacles_in_road_section += 1
-        self.previous_road_section_num_obstacles = num_obstacles_in_road_section
+            else:
+                spots = random.sample(list(range(road_width_without_curbs)), num_obstacles_allowed_in_land_row)
+                for spot in spots:
+                    if (random.random() < self.random_obstacle_probability):
+                        next_road_section[curb + spot] = 'O'
+                        num_obstacles_in_road_section += 1
+            self.previous_road_section_num_obstacles = num_obstacles_in_road_section
         self.road.append(next_road_section)
         if (len(self.road) > self.max_number_display_road_states):
             self.road.pop(0)
