@@ -46,7 +46,12 @@ class TabularQBrain:
 
 
     def on_after_move(self, action, crashed, num_advances, recent_road_states):
-        print('In after move.')
+        if (crashed or (num_advances % self.advances_learning_interval == self.advances_learning_interval-1)):
+            reward = self.safe_reward
+            if (crashed):
+                reward = self.crash_reward
+
+            self.__update_qvalues(action, reward, recent_road_states)
 
 
     def on_crashed(self, fast_mode, game_number, display_frequency, road_width, num_advances, max_advances):
@@ -54,6 +59,33 @@ class TabularQBrain:
             print("Crashed! Road width: {0}, game num: {1}, num advances: {2}, max advances: {3}.".format(road_width, game_number, num_advances, max_advances))
             time.sleep(1)
     
+
+    def __update_qvalues(self, action, reward, recent_road_states):
+        learning_states = recent_road_states[-self.advances_learning_interval:]
+
+        discount_power = len(learning_states)
+        for current_state in learning_states:
+            discount = self.base_discount ** discount_power
+
+            road_sections = current_state[0]
+            car_position = current_state[1]
+            action = current_state[2]
+
+            qvalues_tuple = self.__state_action_to_qvalues_tuple(action, car_position, road_sections)
+            if (qvalues_tuple in self.latest_qvalues):
+                qvalue = self.__bellmans_equation(self.latest_qvalues[qvalues_tuple], reward
+                    , discount, self.max_qvalues[qvalues_tuple])
+            
+                self.latest_qvalues[qvalues_tuple] = qvalue
+                if (qvalue > self.max_qvalues[qvalues_tuple]):
+                    self.max_qvalues[qvalues_tuple] = qvalue
+            else:
+                qvalue = self.__bellmans_equation(0, reward, discount, 0)
+                self.latest_qvalues[qvalues_tuple] = qvalue
+                self.max_qvalues[qvalues_tuple] = qvalue
+
+            discount_power -= 1
+
 
     def __bellmans_equation(self, last_q_value, reward, discount, max_q_value):
         result = (((1 - self.step_size)*last_q_value) + (self.step_size*(reward + (discount*max_q_value))))
